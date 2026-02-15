@@ -35,6 +35,67 @@ using metaffi::utils::cdts_jvm_serializer;
 
 static auto LOG = metaffi::get_logger("jvm.runtime");
 
+// ---------------------------------------------------------------------------
+// Cached JNI class refs and method IDs for reflection hot-path
+// Initialized once in init_jni_reflection_cache() and never released (lives
+// for the duration of the JVM).
+// ---------------------------------------------------------------------------
+static jclass    g_cls_object     = nullptr; // java/lang/Object
+static jclass    g_cls_method     = nullptr; // java/lang/reflect/Method
+static jclass    g_cls_constructor= nullptr; // java/lang/reflect/Constructor
+static jclass    g_cls_field      = nullptr; // java/lang/reflect/Field
+static jclass    g_cls_class      = nullptr; // java/lang/Class
+static jclass    g_cls_array      = nullptr; // java/lang/reflect/Array
+
+static jmethodID g_mid_method_invoke          = nullptr; // Method.invoke(Object, Object[])
+static jmethodID g_mid_method_getParamTypes   = nullptr; // Method.getParameterTypes()
+static jmethodID g_mid_ctor_newInstance        = nullptr; // Constructor.newInstance(Object[])
+static jmethodID g_mid_ctor_getParamTypes     = nullptr; // Constructor.getParameterTypes()
+static jmethodID g_mid_field_get              = nullptr; // Field.get(Object)
+static jmethodID g_mid_field_set              = nullptr; // Field.set(Object, Object)
+static jmethodID g_mid_class_isArray          = nullptr; // Class.isArray()
+static jmethodID g_mid_class_getComponentType = nullptr; // Class.getComponentType()
+static jmethodID g_mid_array_getLength        = nullptr; // Array.getLength(Object)
+static jmethodID g_mid_array_newInstance      = nullptr; // Array.newInstance(Class, int)
+static jmethodID g_mid_array_get              = nullptr; // Array.get(Object, int)
+static jmethodID g_mid_array_set              = nullptr; // Array.set(Object, int, Object)
+
+static std::once_flag g_jni_cache_once;
+
+static void init_jni_reflection_cache(JNIEnv* env)
+{
+    std::call_once(g_jni_cache_once, [&]()
+    {
+        auto cache_class = [&](const char* name) -> jclass
+        {
+            jclass lc = env->FindClass(name);
+            jclass gc = (jclass)env->NewGlobalRef(lc);
+            env->DeleteLocalRef(lc);
+            return gc;
+        };
+
+        g_cls_object      = cache_class("java/lang/Object");
+        g_cls_method      = cache_class("java/lang/reflect/Method");
+        g_cls_constructor = cache_class("java/lang/reflect/Constructor");
+        g_cls_field       = cache_class("java/lang/reflect/Field");
+        g_cls_class       = cache_class("java/lang/Class");
+        g_cls_array       = cache_class("java/lang/reflect/Array");
+
+        g_mid_method_invoke          = env->GetMethodID(g_cls_method, "invoke", "(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;");
+        g_mid_method_getParamTypes   = env->GetMethodID(g_cls_method, "getParameterTypes", "()[Ljava/lang/Class;");
+        g_mid_ctor_newInstance        = env->GetMethodID(g_cls_constructor, "newInstance", "([Ljava/lang/Object;)Ljava/lang/Object;");
+        g_mid_ctor_getParamTypes     = env->GetMethodID(g_cls_constructor, "getParameterTypes", "()[Ljava/lang/Class;");
+        g_mid_field_get              = env->GetMethodID(g_cls_field, "get", "(Ljava/lang/Object;)Ljava/lang/Object;");
+        g_mid_field_set              = env->GetMethodID(g_cls_field, "set", "(Ljava/lang/Object;Ljava/lang/Object;)V");
+        g_mid_class_isArray          = env->GetMethodID(g_cls_class, "isArray", "()Z");
+        g_mid_class_getComponentType = env->GetMethodID(g_cls_class, "getComponentType", "()Ljava/lang/Class;");
+        g_mid_array_getLength        = env->GetStaticMethodID(g_cls_array, "getLength", "(Ljava/lang/Object;)I");
+        g_mid_array_newInstance      = env->GetStaticMethodID(g_cls_array, "newInstance", "(Ljava/lang/Class;I)Ljava/lang/Object;");
+        g_mid_array_get              = env->GetStaticMethodID(g_cls_array, "get", "(Ljava/lang/Object;I)Ljava/lang/Object;");
+        g_mid_array_set              = env->GetStaticMethodID(g_cls_array, "set", "(Ljava/lang/Object;ILjava/lang/Object;)V");
+    });
+}
+
 namespace
 {
     bool trace_enabled()
@@ -659,46 +720,104 @@ namespace
         env->DeleteLocalRef(cls);
     }
 
+    // Coerce arguments to match the method/constructor's declared parameter types.
+    // This handles cases where CDT serialization produces Object[] for opaque handles,
+    // but the Java method expects a more specific array type (e.g. SomeClass[], Color).
+    void coerce_args_to_param_types(JNIEnv* env, jobject method_or_ctor, jobjectArray args, bool is_constructor)
+    {
+        if(!args) return;
+
+        jsize arg_count = env->GetArrayLength(args);
+        if(arg_count == 0) return; // Fast path: nothing to coerce for zero args
+
+        jmethodID get_param_types = is_constructor ? g_mid_ctor_getParamTypes : g_mid_method_getParamTypes;
+        jobjectArray param_types = (jobjectArray)env->CallObjectMethod(method_or_ctor, get_param_types);
+
+        if(!param_types) return;
+
+        jsize param_count = env->GetArrayLength(param_types);
+        jsize count = (std::min)(param_count, arg_count);
+
+        for(jsize i = 0; i < count; i++)
+        {
+            jclass expected_type = (jclass)env->GetObjectArrayElement(param_types, i);
+            jobject arg = env->GetObjectArrayElement(args, i);
+
+            if(!arg || !expected_type)
+            {
+                if(expected_type) env->DeleteLocalRef(expected_type);
+                if(arg) env->DeleteLocalRef(arg);
+                continue;
+            }
+
+            // Only coerce if the argument doesn't match and the expected type is an array
+            jboolean is_expected_array = env->CallBooleanMethod(expected_type, g_mid_class_isArray);
+            if(is_expected_array && !env->IsInstanceOf(arg, expected_type))
+            {
+                // Get the expected component type and array length
+                jclass expected_component = (jclass)env->CallObjectMethod(expected_type, g_mid_class_getComponentType);
+                jint len = env->CallStaticIntMethod(g_cls_array, g_mid_array_getLength, arg);
+
+                // Create a new array with the correct component type
+                jobject new_array = env->CallStaticObjectMethod(g_cls_array, g_mid_array_newInstance, expected_component, len);
+                if(new_array && !env->ExceptionCheck())
+                {
+                    // Copy elements, using Array.get/set for type-safe element transfer
+                    for(jint j = 0; j < len; j++)
+                    {
+                        jobject elem = env->CallStaticObjectMethod(g_cls_array, g_mid_array_get, arg, j);
+                        if(env->ExceptionCheck()) { env->ExceptionClear(); break; }
+                        env->CallStaticVoidMethod(g_cls_array, g_mid_array_set, new_array, j, elem);
+                        if(elem) env->DeleteLocalRef(elem);
+                        if(env->ExceptionCheck()) { env->ExceptionClear(); break; }
+                    }
+                    // Replace the argument in the args array
+                    env->SetObjectArrayElement(args, i, new_array);
+                    env->DeleteLocalRef(new_array);
+                }
+                else if(env->ExceptionCheck())
+                {
+                    env->ExceptionClear();
+                }
+                if(expected_component) env->DeleteLocalRef(expected_component);
+            }
+
+            env->DeleteLocalRef(expected_type);
+            env->DeleteLocalRef(arg);
+        }
+
+        env->DeleteLocalRef(param_types);
+    }
+
     jobject invoke_method(JNIEnv* env, jobject method, jobject instance, jobjectArray args)
     {
-        jclass cls = env->FindClass("java/lang/reflect/Method");
-        jmethodID mid = env->GetMethodID(cls, "invoke", "(Ljava/lang/Object;[Ljava/lang/Object;)Ljava/lang/Object;");
-        jobject res = env->CallObjectMethod(method, mid, instance, args);
-        env->DeleteLocalRef(cls);
+        // Coerce arguments to match declared parameter types before invoking
+        coerce_args_to_param_types(env, method, args, false);
+
+        jobject res = env->CallObjectMethod(method, g_mid_method_invoke, instance, args);
         return res;
     }
 
     jobject invoke_constructor(JNIEnv* env, jobject ctor, jobjectArray args)
     {
-        jclass cls = env->FindClass("java/lang/reflect/Constructor");
-        jmethodID mid = env->GetMethodID(cls, "newInstance", "([Ljava/lang/Object;)Ljava/lang/Object;");
-        jobject res = env->CallObjectMethod(ctor, mid, args);
-        env->DeleteLocalRef(cls);
+        jobject res = env->CallObjectMethod(ctor, g_mid_ctor_newInstance, args);
         return res;
     }
 
     jobject field_get_value(JNIEnv* env, jobject field, jobject instance)
     {
-        jclass cls = env->FindClass("java/lang/reflect/Field");
-        jmethodID mid = env->GetMethodID(cls, "get", "(Ljava/lang/Object;)Ljava/lang/Object;");
-        jobject res = env->CallObjectMethod(field, mid, instance);
-        env->DeleteLocalRef(cls);
+        jobject res = env->CallObjectMethod(field, g_mid_field_get, instance);
         return res;
     }
 
     void field_set_value(JNIEnv* env, jobject field, jobject instance, jobject value)
     {
-        jclass cls = env->FindClass("java/lang/reflect/Field");
-        jmethodID mid = env->GetMethodID(cls, "set", "(Ljava/lang/Object;Ljava/lang/Object;)V");
-        env->CallVoidMethod(field, mid, instance, value);
-        env->DeleteLocalRef(cls);
+        env->CallVoidMethod(field, g_mid_field_set, instance, value);
     }
 
     jobjectArray build_args_array(JNIEnv* env, const std::vector<jobject>& args)
     {
-        jclass obj_cls = env->FindClass("java/lang/Object");
-        jobjectArray arr = env->NewObjectArray(static_cast<jsize>(args.size()), obj_cls, nullptr);
-        env->DeleteLocalRef(obj_cls);
+        jobjectArray arr = env->NewObjectArray(static_cast<jsize>(args.size()), g_cls_object, nullptr);
 
         for(jsize i = 0; i < static_cast<jsize>(args.size()); i++)
         {
@@ -1330,9 +1449,59 @@ namespace
         jobject method = env->CallObjectMethod(cls, get_declared_method, name_obj, params_array);
         env->DeleteLocalRef(name_obj);
         env->DeleteLocalRef(params_array);
+
+        // If exact type match failed (e.g. MetaFFI passes Object.class for a HANDLE
+        // param but method expects Color/SomeClass[]/interface), fall back to matching
+        // by name and parameter count. This handles opaque-handle interop where the
+        // exact Java type isn't known at the MetaFFI API level.
+        if(env->ExceptionCheck())
+        {
+            env->ExceptionClear();
+            method = nullptr;
+
+            jmethodID get_declared_methods = env->GetMethodID(class_cls, "getDeclaredMethods", "()[Ljava/lang/reflect/Method;");
+            if(get_declared_methods)
+            {
+                jobjectArray methods = (jobjectArray)env->CallObjectMethod(cls, get_declared_methods);
+                if(methods && !env->ExceptionCheck())
+                {
+                    jclass method_cls = env->FindClass("java/lang/reflect/Method");
+                    jmethodID get_name = env->GetMethodID(method_cls, "getName", "()Ljava/lang/String;");
+                    jmethodID get_param_types = env->GetMethodID(method_cls, "getParameterTypes", "()[Ljava/lang/Class;");
+
+                    jsize count = env->GetArrayLength(methods);
+                    for(jsize i = 0; i < count; i++)
+                    {
+                        jobject m = env->GetObjectArrayElement(methods, i);
+                        jstring m_name = (jstring)env->CallObjectMethod(m, get_name);
+                        const char* m_name_cstr = env->GetStringUTFChars(m_name, nullptr);
+                        bool name_match = (name == m_name_cstr);
+                        env->ReleaseStringUTFChars(m_name, m_name_cstr);
+                        env->DeleteLocalRef(m_name);
+
+                        if(name_match)
+                        {
+                            jobjectArray m_params = (jobjectArray)env->CallObjectMethod(m, get_param_types);
+                            jsize m_param_count = m_params ? env->GetArrayLength(m_params) : 0;
+                            if(m_params) env->DeleteLocalRef(m_params);
+
+                            if(m_param_count == static_cast<jsize>(param_types.size()))
+                            {
+                                method = m; // Found matching method by name + param count
+                                break;
+                            }
+                        }
+                        env->DeleteLocalRef(m);
+                    }
+                    env->DeleteLocalRef(method_cls);
+                    env->DeleteLocalRef(methods);
+                }
+            }
+            if(env->ExceptionCheck()) env->ExceptionClear();
+        }
+
         env->DeleteLocalRef(class_cls);
 
-        throw_if_jni_exception(env, "Failed to resolve Java method: " + name);
         if(!method)
         {
             throw std::runtime_error("Failed to resolve Java method: " + name);
@@ -1645,33 +1814,54 @@ namespace
 
         if(ctx->is_callable)
         {
-            std::vector<jobject> args;
-            if(param_count > param_offset)
-            {
-                args.reserve(param_count - param_offset);
-            }
+            size_t effective_args = param_count - param_offset;
 
-            for(size_t i = param_offset; i < param_count; i++)
-            {
-                if(!params_ser)
-                {
-                    throw std::runtime_error("Parameters are missing");
-                }
-                args.push_back(convert_param_to_object(env, *params_ser, ctx->params_types[i]));
-            }
-
-            jobjectArray args_array = build_args_array(env, args);
             jobject result = nullptr;
-            if(ctx->is_constructor)
+            jobjectArray args_array = nullptr;
+
+            if(effective_args == 0 && !ctx->is_constructor)
             {
-                result = invoke_constructor(env, ctx->member, args_array);
+                // Fast path: no arguments — call Method.invoke(instance, null) directly.
+                // Passing null for the args array is legal in Java reflection.
+                result = env->CallObjectMethod(ctx->member, g_mid_method_invoke,
+                                               ctx->instance_required ? instance : nullptr,
+                                               (jobject)nullptr);
             }
             else
             {
-                result = invoke_method(env, ctx->member, ctx->instance_required ? instance : nullptr, args_array);
+                std::vector<jobject> args;
+                if(effective_args > 0)
+                {
+                    args.reserve(effective_args);
+                }
+
+                for(size_t i = param_offset; i < param_count; i++)
+                {
+                    if(!params_ser)
+                    {
+                        throw std::runtime_error("Parameters are missing");
+                    }
+                    args.push_back(convert_param_to_object(env, *params_ser, ctx->params_types[i]));
+                }
+
+                args_array = build_args_array(env, args);
+
+                if(ctx->is_constructor)
+                {
+                    result = invoke_constructor(env, ctx->member, args_array);
+                }
+                else
+                {
+                    result = invoke_method(env, ctx->member, ctx->instance_required ? instance : nullptr, args_array);
+                }
+
+                for(jobject arg : args)
+                {
+                    delete_local_ref_if_needed(env, arg);
+                }
             }
 
-            env->DeleteLocalRef(args_array);
+            if(args_array) env->DeleteLocalRef(args_array);
             throw_if_jni_exception(env, "Failed to invoke Java method");
 
             if(ret_ser)
@@ -1685,11 +1875,6 @@ namespace
                 {
                     store_multiple_return_values(env, *ret_ser, ctx->retvals_types, result);
                 }
-            }
-
-            for(jobject arg : args)
-            {
-                delete_local_ref_if_needed(env, arg);
             }
 
             delete_local_ref_if_needed(env, result);
@@ -1773,36 +1958,58 @@ static void jvmxcall(entity_context* ctx, cdts* params, cdts* ret, char** out_er
     }
 
     JNIEnv* env = nullptr;
-    auto release_env = g_runtime_manager->get_env(&env);
-    metaffi::utils::scope_guard env_guard([&](){ release_env(); });
+    bool env_needs_release = g_runtime_manager->get_env(&env);
+
+    // Ensure reflection cache is initialized (no-op after first call)
+    init_jni_reflection_cache(env);
 
     try
     {
-        std::unique_ptr<cdts_jvm_serializer> params_ser;
-        std::unique_ptr<cdts_jvm_serializer> ret_ser;
-
-        jobject class_loader = jni_class_loader::get_child_class_loader();
-        if(params)
+        if(!params && !ret)
         {
-            params_ser = std::make_unique<cdts_jvm_serializer>(env, *params, class_loader);
-        }
-        if(ret)
-        {
-            ret_ser = std::make_unique<cdts_jvm_serializer>(env, *ret, class_loader);
-        }
-
-        if(ctx->use_direct_call)
-        {
-            invoke_direct_call(ctx, env, params_ser.get(), ret_ser.get());
+            // Fast path: no params and no return values — skip serializer construction entirely.
+            if(ctx->use_direct_call)
+            {
+                invoke_direct_call(ctx, env, nullptr, nullptr);
+            }
+            else
+            {
+                invoke_reflection_call(ctx, env, nullptr, nullptr);
+            }
         }
         else
         {
-            invoke_reflection_call(ctx, env, params_ser.get(), ret_ser.get());
+            jobject class_loader = jni_class_loader::get_child_class_loader();
+
+            std::unique_ptr<cdts_jvm_serializer> params_ser;
+            std::unique_ptr<cdts_jvm_serializer> ret_ser;
+            if(params)
+            {
+                params_ser = std::make_unique<cdts_jvm_serializer>(env, *params, class_loader);
+            }
+            if(ret)
+            {
+                ret_ser = std::make_unique<cdts_jvm_serializer>(env, *ret, class_loader);
+            }
+
+            if(ctx->use_direct_call)
+            {
+                invoke_direct_call(ctx, env, params_ser.get(), ret_ser.get());
+            }
+            else
+            {
+                invoke_reflection_call(ctx, env, params_ser.get(), ret_ser.get());
+            }
         }
     }
     catch(const std::exception& e)
     {
         set_error(out_err, e.what());
+    }
+
+    if(env_needs_release)
+    {
+        g_runtime_manager->release_env();
     }
 }
 
@@ -1825,6 +2032,13 @@ void load_runtime(char** err)
         trace("jvm_runtime: manager created");
         g_runtime_manager->load_runtime();
         trace("jvm_runtime: load_runtime done");
+
+        // Initialize JNI reflection cache now that JVM is running
+        JNIEnv* env = nullptr;
+        bool env_needs_release = g_runtime_manager->get_env(&env);
+        init_jni_reflection_cache(env);
+        if(env_needs_release) g_runtime_manager->release_env();
+        trace("jvm_runtime: reflection cache initialized");
     }
     catch(const std::exception& e)
     {
@@ -2004,8 +2218,8 @@ static xcall* load_entity_impl(const char* module_path, const char* entity_path,
         ctx->instance_required = fp.contains("instance_required");
 
         JNIEnv* env = nullptr;
-        auto release_env = g_runtime_manager->get_env(&env);
-        metaffi::utils::scope_guard env_guard([&](){ release_env(); });
+        bool env_needs_release = g_runtime_manager->get_env(&env);
+        metaffi::utils::scope_guard env_guard([&](){ if(env_needs_release) g_runtime_manager->release_env(); });
 
         std::string module = module_path ? module_path : "";
         jni_class_loader loader(env, module);
@@ -2178,8 +2392,8 @@ xcall* make_callable(void* make_callable_context, metaffi_type_info* params_type
         }
 
         JNIEnv* env = nullptr;
-        auto release_env = g_runtime_manager->get_env(&env);
-        metaffi::utils::scope_guard env_guard([&](){ release_env(); });
+        bool env_needs_release = g_runtime_manager->get_env(&env);
+        metaffi::utils::scope_guard env_guard([&](){ if(env_needs_release) g_runtime_manager->release_env(); });
 
         ctx->use_direct_call = true;
         ctx->direct_ctx = *pctxt;
@@ -2229,8 +2443,8 @@ void free_xcall(xcall* pxcall, char** err)
         if(g_runtime_manager && g_runtime_manager->is_runtime_loaded())
         {
             JNIEnv* env = nullptr;
-            auto release_env = g_runtime_manager->get_env(&env);
-            metaffi::utils::scope_guard env_guard([&](){ release_env(); });
+            bool env_needs_release = g_runtime_manager->get_env(&env);
+            metaffi::utils::scope_guard env_guard([&](){ if(env_needs_release) g_runtime_manager->release_env(); });
 
             if(ctx->member)
             {
