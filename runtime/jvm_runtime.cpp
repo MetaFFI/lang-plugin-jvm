@@ -27,6 +27,10 @@
 #include <string>
 #include <vector>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 using metaffi::utils::cdts_jvm_serializer;
 
 static auto LOG = metaffi::get_logger("jvm.runtime");
@@ -1894,7 +1898,60 @@ static void jvm_api_xcall_no_params_no_ret(void* context, char** out_err)
     jvmxcall_no_params_no_ret(ctx, out_err);
 }
 
+// Forward declaration — actual implementation that does JNI work
+static xcall* load_entity_impl(const char* module_path, const char* entity_path, metaffi_type_info* params_types, int8_t params_count, metaffi_type_info* retvals_types, int8_t retval_count, char** err);
+
+#ifdef _WIN32
+// Workaround for Go's VEH intercepting JVM's internal SEH exceptions.
+// load_entity does JNI class/method lookups that can trigger JVM null-check
+// SEH exceptions. Running on a dedicated Windows thread avoids the conflict.
+// See: https://github.com/golang/go/issues/47576
+//      https://github.com/golang/go/issues/58542
+struct load_entity_thread_ctx
+{
+    const char* module_path;
+    const char* entity_path;
+    metaffi_type_info* params_types;
+    int8_t params_count;
+    metaffi_type_info* retvals_types;
+    int8_t retval_count;
+    char** err;
+    xcall* result;
+};
+
+static DWORD WINAPI load_entity_thread_proc(LPVOID param)
+{
+    auto* ctx = static_cast<load_entity_thread_ctx*>(param);
+    ctx->result = load_entity_impl(
+        ctx->module_path, ctx->entity_path,
+        ctx->params_types, ctx->params_count,
+        ctx->retvals_types, ctx->retval_count,
+        ctx->err);
+    return 0;
+}
+#endif
+
 xcall* load_entity(const char* module_path, const char* entity_path, metaffi_type_info* params_types, int8_t params_count, metaffi_type_info* retvals_types, int8_t retval_count, char** err)
+{
+#ifdef _WIN32
+    load_entity_thread_ctx ctx{module_path, entity_path, params_types, params_count, retvals_types, retval_count, err, nullptr};
+    HANDLE hThread = CreateThread(nullptr, 0, load_entity_thread_proc, &ctx, 0, nullptr);
+    if(!hThread)
+    {
+        clear_error(err);
+        std::string msg = "CreateThread for load_entity failed: " + std::to_string(GetLastError());
+        set_error(err, msg.c_str());
+        return nullptr;
+    }
+    WaitForSingleObject(hThread, INFINITE);
+    CloseHandle(hThread);
+    return ctx.result;
+#else
+    return load_entity_impl(module_path, entity_path, params_types, params_count, retvals_types, retval_count, err);
+#endif
+}
+
+static xcall* load_entity_impl(const char* module_path, const char* entity_path, metaffi_type_info* params_types, int8_t params_count, metaffi_type_info* retvals_types, int8_t retval_count, char** err)
 {
     clear_error(err);
 
