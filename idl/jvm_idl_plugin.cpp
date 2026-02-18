@@ -179,8 +179,10 @@ private:
         }
 
         JNIEnv* env = nullptr;
-        auto release_env = m_runtime->get_env(&env);
-        metaffi::utils::scope_guard env_guard([&](){ release_env(); });
+        if(m_runtime->get_env(&env))
+        {
+            throw std::runtime_error("Failed to get Envrionment");
+        }
 
         jclass string_class = env->FindClass("java/lang/String");
         if(env->ExceptionCheck() || !string_class)
@@ -214,8 +216,10 @@ private:
         try
         {
             JNIEnv* env = nullptr;
-            auto release_env = m_runtime->get_env(&env);
-            metaffi::utils::scope_guard env_guard([&](){ release_env(); });
+            if(m_runtime->get_env(&env))
+            {
+                throw std::runtime_error("Failed to get Envrionment");
+            }
 
             if(m_extractor_class)
             {
@@ -228,10 +232,10 @@ private:
                 m_string_class = nullptr;
             }
 
-            release_env();
         }
         catch(...)
         {
+            METAFFI_WARN(LOG, "Unknown exception during - cleanup_java_refs");
         }
     }
 

@@ -140,7 +140,7 @@ namespace
 
     metaffi_type base_type(metaffi_type type)
     {
-        return is_array_type(type) ? (type & ~metaffi_array_type) : type;
+        return is_array_type(type) ? (type & ~(metaffi_array_type | metaffi_packed_type)) : type;
     }
 
     std::string to_internal_name(const std::string& name)
@@ -1166,6 +1166,12 @@ namespace
         }
 
         metaffi_type type = type_info.type;
+        if(metaffi_is_packed_array(type))
+        {
+            metaffi_type elem_type = metaffi_packed_element_type(type);
+            ser.add_packed_array((jarray)obj, elem_type);
+            return;
+        }
         if(is_array_type(type))
         {
             int dims = type_info.fixed_dimensions > 0 ? static_cast<int>(type_info.fixed_dimensions) : get_array_dimensions(env, (jarray)obj);

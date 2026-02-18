@@ -166,6 +166,76 @@ TEST_CASE("array functions")
 	trace_step("array functions: done");
 }
 
+TEST_CASE("packed array: sum 1d int array")
+{
+	auto& env = jvm_test_env();
+	trace_step("packed array sum: start");
+
+	auto sum1d = env.guest_module.load_entity_with_info(
+		"class=guest.ArrayFunctions,callable=sumInt1dArray",
+		{make_array_type(metaffi_int32_packed_array_type, 1)},
+		{make_type(metaffi_int32_type)});
+	trace_step("packed array sum: loaded");
+
+	std::vector<int32_t> arr = {1, 2, 3, 4, 5};
+	auto [sum_val] = sum1d.call<int32_t>(arr);
+	trace_step("packed array sum: called");
+	CHECK(sum_val == 15);
+}
+
+TEST_CASE("packed array: echo 1d long array")
+{
+	auto& env = jvm_test_env();
+	trace_step("packed array echo long: start");
+
+	auto echo = env.guest_module.load_entity_with_info(
+		"class=guest.ArrayFunctions,callable=echoLong1dArray",
+		{make_array_type(metaffi_int64_packed_array_type, 1)},
+		{make_array_type(metaffi_int64_packed_array_type, 1)});
+	trace_step("packed array echo long: loaded");
+
+	std::vector<int64_t> arr = {100, 200, 300};
+	auto [result] = echo.call<std::vector<int64_t>>(arr);
+	trace_step("packed array echo long: called");
+	CHECK(result == std::vector<int64_t>({100, 200, 300}));
+}
+
+TEST_CASE("packed array: echo 1d double array")
+{
+	auto& env = jvm_test_env();
+	trace_step("packed array echo double: start");
+
+	auto echo = env.guest_module.load_entity_with_info(
+		"class=guest.ArrayFunctions,callable=echoDouble1dArray",
+		{make_array_type(metaffi_float64_packed_array_type, 1)},
+		{make_array_type(metaffi_float64_packed_array_type, 1)});
+	trace_step("packed array echo double: loaded");
+
+	std::vector<double> arr = {1.5, 2.5, 3.5};
+	auto [result] = echo.call<std::vector<double>>(arr);
+	trace_step("packed array echo double: called");
+	REQUIRE(result.size() == 3);
+	CHECK(result[0] == doctest::Approx(1.5));
+	CHECK(result[1] == doctest::Approx(2.5));
+	CHECK(result[2] == doctest::Approx(3.5));
+}
+
+TEST_CASE("packed array: make 1d int array")
+{
+	auto& env = jvm_test_env();
+	trace_step("packed array make: start");
+
+	auto make1d = env.guest_module.load_entity_with_info(
+		"class=guest.ArrayFunctions,callable=makeInt1dArray",
+		{},
+		{make_array_type(metaffi_int32_packed_array_type, 1)});
+	trace_step("packed array make: loaded");
+
+	auto [arr] = make1d.call<std::vector<int32_t>>();
+	trace_step("packed array make: called");
+	CHECK(arr == std::vector<int32_t>({10, 20, 30, 40, 50}));
+}
+
 TEST_CASE("core returns arrays")
 {
 	auto& env = jvm_test_env();

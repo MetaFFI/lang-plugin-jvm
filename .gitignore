@@ -114,3 +114,5 @@ lang-plugin-jvm/idl/*.bak
 lang-plugin-jvm/idl/*.backup
 go.work
 go.work.sum
+
+*.class

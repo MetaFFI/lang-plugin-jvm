@@ -177,8 +177,10 @@ void JVMCompilerPlugin::initialize_jvm()
     }
 
     JNIEnv* env = nullptr;
-    auto release_env = m_runtime->get_env(&env);
-    metaffi::utils::scope_guard env_guard([&](){ release_env(); });
+    if(m_runtime->get_env(&env))
+    {
+        throw std::runtime_error("Failed to get Envrionment");
+    }
 
     m_context_default = env->GetStaticMethodID(m_context_class, "defaultContext", "()Lcom/metaffi/compiler/host/CompilerContext;");
     check_jni(env, "Failed to resolve CompilerContext.defaultContext");
@@ -221,8 +223,10 @@ void JVMCompilerPlugin::execute_host_compiler(
     initialize_jvm();
 
     JNIEnv* env = nullptr;
-    auto release_env = m_runtime->get_env(&env);
-    metaffi::utils::scope_guard env_guard([&](){ release_env(); });
+    if(m_runtime->get_env(&env))
+    {
+        throw std::runtime_error("Failed to get Envrionment");
+    }
 
     jobject context = env->CallStaticObjectMethod(m_context_class, m_context_default);
     check_jni(env, "CompilerContext.defaultContext failed");
@@ -344,10 +348,10 @@ void JVMCompilerPlugin::cleanup_java_refs()
             m_hash_map_class = nullptr;
         }
 
-        release_env();
     }
     catch(...)
     {
+        METAFFI_WARN(LOG, "Unknown exception during - cleanup_java_refs");
     }
 }
 
