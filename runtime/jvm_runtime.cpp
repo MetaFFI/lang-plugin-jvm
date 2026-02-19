@@ -2078,14 +2078,14 @@ static void jvmxcall_params_ret(entity_context* ctx, cdts params_ret[2], char** 
     jvmxcall(ctx, &params_ret[0], &params_ret[1], out_err);
 }
 
-static void jvmxcall_params_no_ret(entity_context* ctx, cdts parameters[1], char** out_err)
+static void jvmxcall_params_no_ret(entity_context* ctx, cdts params_ret[2], char** out_err)
 {
-    jvmxcall(ctx, &parameters[0], nullptr, out_err);
+    jvmxcall(ctx, &params_ret[0], nullptr, out_err);
 }
 
-static void jvmxcall_no_params_ret(entity_context* ctx, cdts return_values[1], char** out_err)
+static void jvmxcall_no_params_ret(entity_context* ctx, cdts params_ret[2], char** out_err)
 {
-    jvmxcall(ctx, nullptr, &return_values[0], out_err);
+    jvmxcall(ctx, nullptr, &params_ret[1], out_err);
 }
 
 static void jvmxcall_no_params_no_ret(entity_context* ctx, char** out_err)
@@ -2100,16 +2100,16 @@ static void jvm_api_xcall_params_ret(void* context, cdts params_ret[2], char** o
     jvmxcall_params_ret(ctx, params_ret, out_err);
 }
 
-static void jvm_api_xcall_params_no_ret(void* context, cdts parameters[1], char** out_err)
+static void jvm_api_xcall_params_no_ret(void* context, cdts params_ret[2], char** out_err)
 {
     auto* ctx = static_cast<entity_context*>(context);
-    jvmxcall_params_no_ret(ctx, parameters, out_err);
+    jvmxcall_params_no_ret(ctx, params_ret, out_err);
 }
 
-static void jvm_api_xcall_no_params_ret(void* context, cdts return_values[1], char** out_err)
+static void jvm_api_xcall_no_params_ret(void* context, cdts params_ret[2], char** out_err)
 {
     auto* ctx = static_cast<entity_context*>(context);
-    jvmxcall_no_params_ret(ctx, return_values, out_err);
+    jvmxcall_no_params_ret(ctx, params_ret, out_err);
 }
 
 static void jvm_api_xcall_no_params_no_ret(void* context, char** out_err)
