@@ -65,24 +65,80 @@ add_custom_command(TARGET metaffi.idl.jvm POST_BUILD
 )
 
 # Compile test data classes
+file(GLOB JVM_IDL_TESTDATA_JAVA_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/testdata/*.java"
+)
+if(NOT JVM_IDL_TESTDATA_JAVA_SOURCES)
+    message(FATAL_ERROR "No Java test data sources found in ${CMAKE_CURRENT_SOURCE_DIR}/test/testdata")
+endif()
+
+file(GLOB JVM_IDL_EXTRACTOR_TEST_JAVA_SOURCES CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/test/java_extractor/*.java"
+)
+if(NOT JVM_IDL_EXTRACTOR_TEST_JAVA_SOURCES)
+    message(FATAL_ERROR "No Java extractor test sources found in ${CMAKE_CURRENT_SOURCE_DIR}/test/java_extractor")
+endif()
+
+set(JAVA_IDL_TEST_LIBS
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/junit-4.13.2.jar"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/hamcrest-core-1.3.jar"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/asm-9.6.jar"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/asm-tree-9.6.jar"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/javaparser-core-3.24.4.jar"
+    "${CMAKE_CURRENT_SOURCE_DIR}/libs/gson-2.10.1.jar"
+)
+
+if(WIN32)
+    string(JOIN ";" JAVA_IDL_TEST_LIBS_CLASSPATH ${JAVA_IDL_TEST_LIBS})
+    # Escape ';' so CMake passes classpath as a single argument on Windows.
+    string(REPLACE ";" "\\;" JAVA_IDL_TEST_LIBS_CLASSPATH "${JAVA_IDL_TEST_LIBS_CLASSPATH}")
+else()
+    string(JOIN ":" JAVA_IDL_TEST_LIBS_CLASSPATH ${JAVA_IDL_TEST_LIBS})
+endif()
+
 add_custom_command(
     OUTPUT test_data_classes
-    COMMAND ${Java_JAVAC_EXECUTABLE} -cp "libs/*" -d test/testdata test/testdata/*.java
-    DEPENDS test/testdata/AllVariantsTest.java
+    COMMAND ${Java_JAVAC_EXECUTABLE} -cp "${JAVA_IDL_TEST_LIBS_CLASSPATH}" -d test/testdata ${JVM_IDL_TESTDATA_JAVA_SOURCES}
+    DEPENDS ${JVM_IDL_TESTDATA_JAVA_SOURCES}
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     COMMENT "Compiling test data classes"
+    VERBATIM
 )
 
 # Java unit tests
 set(JAVA_TEST_CLASSES_STAMP "${CMAKE_CURRENT_BINARY_DIR}/test/java_extractor/.classes_compiled")
+set(JAVA_TEST_CLASSPATH_LIST
+    ${JAVA_IDL_TEST_LIBS}
+    "${CMAKE_CURRENT_BINARY_DIR}/src/java_extractor"
+    "test/testdata"
+)
+set(JAVA_TEST_RUN_CLASSPATH_LIST
+    ${JAVA_IDL_TEST_LIBS}
+    "${CMAKE_CURRENT_BINARY_DIR}/src/java_extractor"
+    "${CMAKE_CURRENT_BINARY_DIR}/test/java_extractor"
+    "test/testdata"
+)
+
+if(WIN32)
+    string(JOIN ";" JAVA_TEST_CLASSPATH ${JAVA_TEST_CLASSPATH_LIST})
+    string(JOIN ";" JAVA_TEST_RUN_CLASSPATH ${JAVA_TEST_RUN_CLASSPATH_LIST})
+    # Escape ';' so CMake passes classpath as a single argument on Windows.
+    string(REPLACE ";" "\\;" JAVA_TEST_CLASSPATH "${JAVA_TEST_CLASSPATH}")
+    string(REPLACE ";" "\\;" JAVA_TEST_RUN_CLASSPATH "${JAVA_TEST_RUN_CLASSPATH}")
+else()
+    string(JOIN ":" JAVA_TEST_CLASSPATH ${JAVA_TEST_CLASSPATH_LIST})
+    string(JOIN ":" JAVA_TEST_RUN_CLASSPATH ${JAVA_TEST_RUN_CLASSPATH_LIST})
+endif()
+
 add_custom_command(
     OUTPUT "${JAVA_TEST_CLASSES_STAMP}"
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/test/java_extractor"
-    COMMAND ${Java_JAVAC_EXECUTABLE} -cp "libs/*;${CMAKE_CURRENT_BINARY_DIR}/src/java_extractor;test/testdata" -d "${CMAKE_CURRENT_BINARY_DIR}/test/java_extractor" test/java_extractor/*.java
+    COMMAND ${Java_JAVAC_EXECUTABLE} -cp "${JAVA_TEST_CLASSPATH}" -d "${CMAKE_CURRENT_BINARY_DIR}/test/java_extractor" ${JVM_IDL_EXTRACTOR_TEST_JAVA_SOURCES}
     COMMAND ${CMAKE_COMMAND} -E touch "${JAVA_TEST_CLASSES_STAMP}"
-    DEPENDS test/java_extractor/BytecodeExtractorTest.java test/java_extractor/JarExtractorTest.java test_data_classes jvm_idl_plugin_java_src
+    DEPENDS ${JVM_IDL_EXTRACTOR_TEST_JAVA_SOURCES} test_data_classes jvm_idl_plugin_java_src
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     COMMENT "Compiling Java unit tests"
+    VERBATIM
 )
 
 add_custom_target(jvm_idl_plugin_java_tests_classes
@@ -92,10 +148,11 @@ add_custom_target(jvm_idl_plugin_java_tests_classes
 # Run Java tests
 add_custom_command(
     OUTPUT java_tests_run
-    COMMAND ${Java_JAVA_EXECUTABLE} -cp "libs/*;${CMAKE_CURRENT_BINARY_DIR}/src/java_extractor;${CMAKE_CURRENT_BINARY_DIR}/test/java_extractor;test/testdata" org.junit.runner.JUnitCore java_extractor.BytecodeExtractorTest java_extractor.JarExtractorTest
+    COMMAND ${Java_JAVA_EXECUTABLE} -cp "${JAVA_TEST_RUN_CLASSPATH}" org.junit.runner.JUnitCore java_extractor.BytecodeExtractorTest java_extractor.JarExtractorTest
     DEPENDS "${JAVA_TEST_CLASSES_STAMP}"
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     COMMENT "Running Java unit tests"
+    VERBATIM
 )
 
 # Copy JAR files to build directory
@@ -113,7 +170,7 @@ file(COPY
 compile_java(jvm_idl_plugin_java_src
     SOURCES "src/java_extractor/*.java"
     OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/src/java_extractor"
-    CLASSPATH "libs/*"
+    CLASSPATH ${JAVA_IDL_TEST_LIBS}
     COMMENT "Compiling Java extractor sources"
 )
 
@@ -122,7 +179,7 @@ add_junit_test(jvm_idl_plugin_java_tests
 	TEST_CLASSES
 		java_extractor.BytecodeExtractorTest
 		java_extractor.JarExtractorTest
-	CLASSPATH "libs/*" "${CMAKE_CURRENT_BINARY_DIR}/src/java_extractor" "${CMAKE_CURRENT_BINARY_DIR}/test/java_extractor" "test/testdata"
+	CLASSPATH ${JAVA_IDL_TEST_LIBS} "${CMAKE_CURRENT_BINARY_DIR}/src/java_extractor" "${CMAKE_CURRENT_BINARY_DIR}/test/java_extractor" "test/testdata"
 	OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/test"
 	DEPENDS java_tests_run
 	COMMENT "Running JUnit tests"

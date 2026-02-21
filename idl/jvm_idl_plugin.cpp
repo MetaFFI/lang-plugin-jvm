@@ -360,36 +360,39 @@ public:
     }
 };
 
-extern "C"
+#if defined(_WIN32)
+#define JVM_IDL_PLUGIN_EXPORT __declspec(dllexport)
+#else
+#define JVM_IDL_PLUGIN_EXPORT __attribute__((visibility("default")))
+#endif
+
+extern "C" JVM_IDL_PLUGIN_EXPORT idl_plugin_interface* create_plugin()
 {
-    __declspec(dllexport) idl_plugin_interface* create_plugin()
-    {
-        return new JVMIDLPlugin();
-    }
+    return new JVMIDLPlugin();
+}
 
-    __declspec(dllexport) void init_plugin()
+extern "C" JVM_IDL_PLUGIN_EXPORT void init_plugin()
+{
+    static JVMIDLPlugin plugin;
+    plugin.init();
+}
+
+extern "C" JVM_IDL_PLUGIN_EXPORT void parse_idl(const char* source_code, uint32_t source_code_length,
+                                                const char* file_or_path, uint32_t file_or_path_length,
+                                                char** out_idl_def_json, uint32_t* out_idl_def_json_length,
+                                                char** out_err, uint32_t* out_err_len)
+{
+    static JVMIDLPlugin plugin;
+    static bool initialized = false;
+
+    if(!initialized)
     {
-        static JVMIDLPlugin plugin;
         plugin.init();
+        initialized = true;
     }
 
-    __declspec(dllexport) void parse_idl(const char* source_code, uint32_t source_code_length,
-                                         const char* file_or_path, uint32_t file_or_path_length,
-                                         char** out_idl_def_json, uint32_t* out_idl_def_json_length,
-                                         char** out_err, uint32_t* out_err_len)
-    {
-        static JVMIDLPlugin plugin;
-        static bool initialized = false;
-
-        if(!initialized)
-        {
-            plugin.init();
-            initialized = true;
-        }
-
-        plugin.parse_idl(source_code, source_code_length,
-                         file_or_path, file_or_path_length,
-                         out_idl_def_json, out_idl_def_json_length,
-                         out_err, out_err_len);
-    }
+    plugin.parse_idl(source_code, source_code_length,
+                     file_or_path, file_or_path_length,
+                     out_idl_def_json, out_idl_def_json_length,
+                     out_err, out_err_len);
 }
