@@ -90,15 +90,14 @@ set(JAVA_IDL_TEST_LIBS
 
 if(WIN32)
     string(JOIN ";" JAVA_IDL_TEST_LIBS_CLASSPATH ${JAVA_IDL_TEST_LIBS})
-    # Escape ';' so CMake passes classpath as a single argument on Windows.
-    string(REPLACE ";" "\\;" JAVA_IDL_TEST_LIBS_CLASSPATH "${JAVA_IDL_TEST_LIBS_CLASSPATH}")
 else()
     string(JOIN ":" JAVA_IDL_TEST_LIBS_CLASSPATH ${JAVA_IDL_TEST_LIBS})
 endif()
 
 add_custom_command(
-    OUTPUT test_data_classes
+    OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/test_data_classes"
     COMMAND ${Java_JAVAC_EXECUTABLE} -cp "${JAVA_IDL_TEST_LIBS_CLASSPATH}" -d test/testdata ${JVM_IDL_TESTDATA_JAVA_SOURCES}
+    COMMAND ${CMAKE_COMMAND} -E touch "${CMAKE_CURRENT_BINARY_DIR}/test_data_classes"
     DEPENDS ${JVM_IDL_TESTDATA_JAVA_SOURCES}
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     COMMENT "Compiling test data classes"
@@ -122,9 +121,6 @@ set(JAVA_TEST_RUN_CLASSPATH_LIST
 if(WIN32)
     string(JOIN ";" JAVA_TEST_CLASSPATH ${JAVA_TEST_CLASSPATH_LIST})
     string(JOIN ";" JAVA_TEST_RUN_CLASSPATH ${JAVA_TEST_RUN_CLASSPATH_LIST})
-    # Escape ';' so CMake passes classpath as a single argument on Windows.
-    string(REPLACE ";" "\\;" JAVA_TEST_CLASSPATH "${JAVA_TEST_CLASSPATH}")
-    string(REPLACE ";" "\\;" JAVA_TEST_RUN_CLASSPATH "${JAVA_TEST_RUN_CLASSPATH}")
 else()
     string(JOIN ":" JAVA_TEST_CLASSPATH ${JAVA_TEST_CLASSPATH_LIST})
     string(JOIN ":" JAVA_TEST_RUN_CLASSPATH ${JAVA_TEST_RUN_CLASSPATH_LIST})
@@ -135,7 +131,7 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_CURRENT_BINARY_DIR}/test/java_extractor"
     COMMAND ${Java_JAVAC_EXECUTABLE} -cp "${JAVA_TEST_CLASSPATH}" -d "${CMAKE_CURRENT_BINARY_DIR}/test/java_extractor" ${JVM_IDL_EXTRACTOR_TEST_JAVA_SOURCES}
     COMMAND ${CMAKE_COMMAND} -E touch "${JAVA_TEST_CLASSES_STAMP}"
-    DEPENDS ${JVM_IDL_EXTRACTOR_TEST_JAVA_SOURCES} test_data_classes jvm_idl_plugin_java_src
+    DEPENDS ${JVM_IDL_EXTRACTOR_TEST_JAVA_SOURCES} "${CMAKE_CURRENT_BINARY_DIR}/test_data_classes" jvm_idl_plugin_java_src
     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     COMMENT "Compiling Java unit tests"
     VERBATIM
