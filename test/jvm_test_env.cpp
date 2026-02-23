@@ -189,7 +189,8 @@ JvmTestEnv::JvmTestEnv()
 
 JvmTestEnv::~JvmTestEnv()
 {
-	runtime.release_runtime_plugin();
+	// Keep JVM process-wide for the test process lifetime.
+	// Releasing during static teardown has caused double-free aborts on Linux.
 }
 
 JvmTestEnv& jvm_test_env()

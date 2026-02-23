@@ -20,6 +20,10 @@ add_custom_target(jvm
 	DEPENDS xllr.jvm metaffi.idl.jvm metaffi.compiler.jvm
 )
 
+if(DEFINED jvm_host_test)
+	add_dependencies(jvm ${jvm_host_test})
+endif()
+
 set(METAFFI_HOME_PATH $ENV{METAFFI_HOME})
 if(NOT METAFFI_HOME_PATH)
 	message(FATAL_ERROR "METAFFI_HOME environment variable not set. JVM API jar will not be copied.")

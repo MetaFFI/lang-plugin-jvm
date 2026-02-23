@@ -59,9 +59,9 @@ inline metaffi::api::MetaFFITypeInfo make_array_type(metaffi_type type, metaffi_
 	return metaffi::api::MetaFFITypeInfo(type, nullptr, false, fixed_dimensions);
 }
 
-inline metaffi::api::MetaFFITypeInfo make_alias_type(metaffi_type type, const std::string& alias, metaffi_int64 fixed_dimensions = MIXED_OR_UNKNOWN_DIMENSIONS)
+inline metaffi::api::MetaFFITypeInfo make_alias_type(metaffi_type type, const char* alias, metaffi_int64 fixed_dimensions = MIXED_OR_UNKNOWN_DIMENSIONS)
 {
-	return metaffi::api::MetaFFITypeInfo(type, alias.c_str(), true, fixed_dimensions);
+	return metaffi::api::MetaFFITypeInfo(type, alias, true, fixed_dimensions);
 }
 
 inline cdt_metaffi_callable make_callable(xcall& cb_xcall,

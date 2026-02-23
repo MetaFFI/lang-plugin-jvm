@@ -439,7 +439,7 @@ public class HostCompilerE2ETest {
         } else if (osName.contains("mac")) {
             libName = "libxllr.test.dylib";
         } else {
-            libName = "libxllr.test.so";
+            libName = "xllr.test.so";
         }
         return Paths.get(metaffiHome, "test", libName);
     }

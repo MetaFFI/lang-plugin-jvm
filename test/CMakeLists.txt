@@ -56,7 +56,6 @@ set(jvm_host_test_src
 	${CMAKE_CURRENT_LIST_DIR}/test_collections.cpp
 	${CMAKE_CURRENT_LIST_DIR}/test_callbacks.cpp
 	${CMAKE_CURRENT_LIST_DIR}/test_errors.cpp
-	${CMAKE_CURRENT_LIST_DIR}/test_third_party.cpp
 )
 
 set(jvm_host_test_includes
@@ -78,12 +77,34 @@ c_cpp_exe(jvm_host_test
 	"${jvm_host_test_includes}"
 	"${jvm_host_test_libs}"
 	"$ENV{METAFFI_HOME}"
+	INCLUDE_IN_ALL
 )
 
-add_dependencies(jvm_host_test jvm)
+add_dependencies(jvm_host_test xllr.jvm metaffi.idl.jvm metaffi.compiler.jvm)
 
 add_test(NAME jvm_host_test
 	COMMAND $ENV{METAFFI_HOME}/jvm_host_test${CMAKE_EXECUTABLE_SUFFIX}
+)
+
+set(jvm_host_third_party_test_src
+	${CMAKE_CURRENT_LIST_DIR}/test_main.cpp
+	${CMAKE_CURRENT_LIST_DIR}/jvm_test_env.cpp
+	${CMAKE_CURRENT_LIST_DIR}/jvm_wrappers.cpp
+	${CMAKE_CURRENT_LIST_DIR}/test_third_party.cpp
+)
+
+c_cpp_exe(jvm_host_third_party_test
+	"${jvm_host_third_party_test_src}"
+	"${jvm_host_test_includes}"
+	"${jvm_host_test_libs}"
+	"$ENV{METAFFI_HOME}"
+	INCLUDE_IN_ALL
+)
+
+add_dependencies(jvm_host_third_party_test xllr.jvm metaffi.idl.jvm metaffi.compiler.jvm)
+
+add_test(NAME jvm_host_third_party_test
+	COMMAND $ENV{METAFFI_HOME}/jvm_host_third_party_test${CMAKE_EXECUTABLE_SUFFIX}
 )
 
 if(WIN32)
@@ -96,17 +117,17 @@ if(WIN32)
 	set(jvm_host_test_path "${jvm_host_test_path};$ENV{PATH}")
 	string(REPLACE ";" "\\;" jvm_host_test_path "${jvm_host_test_path}")
 	string(REPLACE ";" "\\;" JVM_THIRD_PARTY_CLASSPATH_ESC "${JVM_THIRD_PARTY_CLASSPATH}")
-	set_tests_properties(jvm_host_test PROPERTIES
+	set_tests_properties(jvm_host_test jvm_host_third_party_test PROPERTIES
 		ENVIRONMENT "PATH=${jvm_host_test_path};METAFFI_JVM_THIRD_PARTY_CLASSPATH=${JVM_THIRD_PARTY_CLASSPATH_ESC}"
 	)
 elseif(APPLE)
-	set_tests_properties(jvm_host_test PROPERTIES
+	set_tests_properties(jvm_host_test jvm_host_third_party_test PROPERTIES
 		ENVIRONMENT "DYLD_LIBRARY_PATH=$ENV{METAFFI_HOME}/sdk/api/cpp:$ENV{METAFFI_HOME}/jvm:$ENV{DYLD_LIBRARY_PATH};METAFFI_JVM_THIRD_PARTY_CLASSPATH=${JVM_THIRD_PARTY_CLASSPATH}"
 	)
 else()
-	set_tests_properties(jvm_host_test PROPERTIES
+	set_tests_properties(jvm_host_test jvm_host_third_party_test PROPERTIES
 		ENVIRONMENT "LD_LIBRARY_PATH=$ENV{METAFFI_HOME}/sdk/api/cpp:$ENV{METAFFI_HOME}/jvm:$ENV{LD_LIBRARY_PATH};METAFFI_JVM_THIRD_PARTY_CLASSPATH=${JVM_THIRD_PARTY_CLASSPATH}"
 	)
 endif()
 
-set(jvm_host_test jvm_host_test PARENT_SCOPE)
+set(jvm_host_test jvm_host_test jvm_host_third_party_test PARENT_SCOPE)
