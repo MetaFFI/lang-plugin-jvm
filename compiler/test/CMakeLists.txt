@@ -7,7 +7,9 @@
 set(JVM_COMPILER_TEST_SRC_DIR ${CMAKE_CURRENT_LIST_DIR}/src)
 set(JVM_COMPILER_TEST_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/classes)
 
-set(JVM_API_JAR "$ENV{METAFFI_HOME}/jvm/api/metaffi.api.jar")
+set(METAFFI_HOME_CMAKE "$ENV{METAFFI_HOME}")
+file(TO_CMAKE_PATH "${METAFFI_HOME_CMAKE}" METAFFI_HOME_CMAKE)
+set(JVM_API_JAR "${METAFFI_HOME_CMAKE}/jvm/api/metaffi.api.jar")
 
 compile_java(jvm_host_compiler_e2e_test_classes
 	SOURCES

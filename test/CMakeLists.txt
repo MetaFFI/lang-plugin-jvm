@@ -87,7 +87,13 @@ add_test(NAME jvm_host_test
 )
 
 if(WIN32)
-	set(jvm_host_test_path "$ENV{METAFFI_HOME}/sdk/api/cpp;$ENV{METAFFI_HOME}/jvm;$ENV{PATH}")
+	get_jvm_dll_search_paths(jvm_host_jvm_paths)
+	set(jvm_host_test_path "$ENV{METAFFI_HOME}/sdk/api/cpp;$ENV{METAFFI_HOME}/jvm")
+	if(jvm_host_jvm_paths)
+		list(JOIN jvm_host_jvm_paths ";" jvm_host_jvm_paths_joined)
+		set(jvm_host_test_path "${jvm_host_test_path};${jvm_host_jvm_paths_joined}")
+	endif()
+	set(jvm_host_test_path "${jvm_host_test_path};$ENV{PATH}")
 	string(REPLACE ";" "\\;" jvm_host_test_path "${jvm_host_test_path}")
 	string(REPLACE ";" "\\;" JVM_THIRD_PARTY_CLASSPATH_ESC "${JVM_THIRD_PARTY_CLASSPATH}")
 	set_tests_properties(jvm_host_test PROPERTIES
