@@ -6,6 +6,7 @@
 #include <initializer_list>
 #include <iostream>
 #include <stdexcept>
+#include <system_error>
 #include <vector>
 
 namespace
@@ -23,6 +24,52 @@ bool trace_enabled()
 void trace(const std::string& msg)
 {
 	std::cerr << "+++ " << msg << std::endl;
+}
+
+std::string canonical_or_original(const std::filesystem::path& path)
+{
+	std::error_code ec;
+	const auto canonical = std::filesystem::weakly_canonical(path, ec);
+	return ec ? path.string() : canonical.string();
+}
+
+char path_separator()
+{
+#ifdef _WIN32
+	return ';';
+#else
+	return ':';
+#endif
+}
+
+void log_env_paths(const std::string& name)
+{
+	const std::string value = get_env_var(name.c_str());
+	std::cerr << "+++ jvm_test_env " << name << "=" << value << std::endl;
+	if(value.empty())
+	{
+		return;
+	}
+
+	const char separator = path_separator();
+	std::size_t start = 0;
+	int index = 0;
+	while(start <= value.size())
+	{
+		const std::size_t pos = value.find(separator, start);
+		const std::string entry = (pos == std::string::npos)
+			? value.substr(start)
+			: value.substr(start, pos - start);
+		std::cerr << "+++ jvm_test_env " << name << "[" << index << "]=" << entry << std::endl;
+		++index;
+
+		if(pos == std::string::npos)
+		{
+			break;
+		}
+
+		start = pos + 1;
+	}
 }
 
 std::string require_file(const std::filesystem::path& path, const char* description)
@@ -57,7 +104,9 @@ std::string resolve_guest_jar()
 		"sdk", "test_modules", "guest_modules", "java", "test_bin", "guest_java.jar"
 	});
 	trace(std::string("resolve_guest_jar: candidate=") + path.string());
-	return require_file(path, "guest Java jar");
+	const std::string resolved = require_file(path, "guest Java jar");
+	trace(std::string("resolve_guest_jar: resolved=") + canonical_or_original(std::filesystem::path(resolved)));
+	return resolved;
 }
 
 std::string resolve_api_jar()
@@ -78,6 +127,7 @@ std::string resolve_api_jar()
 		if(std::filesystem::exists(candidate))
 		{
 			trace(std::string("resolve_api_jar: found=") + candidate.string());
+			trace(std::string("resolve_api_jar: resolved=") + canonical_or_original(candidate));
 			return candidate.string();
 		}
 	}
@@ -124,7 +174,9 @@ JvmTestEnv::JvmTestEnv()
 	std::cerr << "+++ jvm_test_env METAFFI_SOURCE_ROOT=" << get_env_var("METAFFI_SOURCE_ROOT") << std::endl;
 	std::cerr << "+++ jvm_test_env METAFFI_HOME=" << get_env_var("METAFFI_HOME") << std::endl;
 	std::cerr << "+++ jvm_test_env JAVA_HOME=" << get_env_var("JAVA_HOME") << std::endl;
+	std::cerr << "+++ jvm_test_env METAFFI_JVM_THIRD_PARTY_CLASSPATH=" << get_env_var("METAFFI_JVM_THIRD_PARTY_CLASSPATH") << std::endl;
 	std::cerr << "+++ jvm_test_env guest_classpath=" << guest_classpath << std::endl;
+	log_env_paths("PATH");
 	if(trace_enabled())
 	{
 		std::cerr << "jvm_test_env: guest_classpath=" << guest_classpath << std::endl;
