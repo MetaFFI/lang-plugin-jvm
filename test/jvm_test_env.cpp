@@ -22,10 +22,7 @@ bool trace_enabled()
 
 void trace(const std::string& msg)
 {
-	if(trace_enabled())
-	{
-		std::cerr << msg << std::endl;
-	}
+	std::cerr << "+++ " << msg << std::endl;
 }
 
 std::string require_file(const std::filesystem::path& path, const char* description)
@@ -124,12 +121,17 @@ JvmTestEnv::JvmTestEnv()
 	  guest_classpath(join_classpath({resolve_guest_jar(), resolve_api_jar()})),
 	  guest_module(runtime.runtime_plugin(), guest_classpath)
 {
+	std::cerr << "+++ jvm_test_env METAFFI_SOURCE_ROOT=" << get_env_var("METAFFI_SOURCE_ROOT") << std::endl;
+	std::cerr << "+++ jvm_test_env METAFFI_HOME=" << get_env_var("METAFFI_HOME") << std::endl;
+	std::cerr << "+++ jvm_test_env JAVA_HOME=" << get_env_var("JAVA_HOME") << std::endl;
+	std::cerr << "+++ jvm_test_env guest_classpath=" << guest_classpath << std::endl;
 	if(trace_enabled())
 	{
 		std::cerr << "jvm_test_env: guest_classpath=" << guest_classpath << std::endl;
 	}
 	trace("jvm_test_env: load_runtime_plugin start");
 	runtime.load_runtime_plugin();
+	std::cerr << "+++ jvm_test_env runtime_loaded=jvm" << std::endl;
 	trace("jvm_test_env: load_runtime_plugin done");
 }
 
