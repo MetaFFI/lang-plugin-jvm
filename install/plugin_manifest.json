@@ -1,0 +1,25 @@
+{
+	"name": "jvm",
+	"version": "0.3.1",
+	"files": {
+		"windows": [
+			"xllr.jvm.dll",
+			"metaffi.compiler.jvm.dll",
+			"metaffi.idl.jvm.dll",
+			"metaffi.api.accessor.dll",
+			"api/metaffi.api.jar",
+			"compiler/*.jar",
+			"idl/*.jar"
+		],
+		"ubuntu": [
+			"xllr.jvm.so",
+			"metaffi.compiler.jvm.so",
+			"metaffi.idl.jvm.so",
+			"metaffi.api.accessor.so",
+			"api/metaffi.api.jar",
+			"compiler/*.jar",
+			"idl/*.jar"
+		]
+	},
+	"extra_files": {}
+}
