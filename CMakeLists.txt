@@ -16,9 +16,8 @@ add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/runtime")
 # tests
 add_subdirectory("${CMAKE_CURRENT_LIST_DIR}/test")
 
-add_custom_target(jvm
-	DEPENDS xllr.jvm metaffi.idl.jvm metaffi.compiler.jvm
-)
+add_custom_target(jvm)
+add_dependencies(jvm xllr.jvm metaffi.idl.jvm metaffi.compiler.jvm)
 
 if(DEFINED jvm_host_test)
 	add_dependencies(jvm ${jvm_host_test})

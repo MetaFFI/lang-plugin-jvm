@@ -80,7 +80,7 @@ c_cpp_exe(jvm_host_test
 	INCLUDE_IN_ALL
 )
 
-add_dependencies(jvm_host_test xllr.jvm metaffi.idl.jvm metaffi.compiler.jvm)
+add_dependencies(jvm_host_test xllr.jvm metaffi.idl.jvm metaffi.compiler.jvm java_guest_module)
 
 add_test(NAME jvm_host_test
 	COMMAND $ENV{METAFFI_HOME}/jvm_host_test${CMAKE_EXECUTABLE_SUFFIX}
@@ -101,7 +101,7 @@ c_cpp_exe(jvm_host_third_party_test
 	INCLUDE_IN_ALL
 )
 
-add_dependencies(jvm_host_third_party_test xllr.jvm metaffi.idl.jvm metaffi.compiler.jvm)
+add_dependencies(jvm_host_third_party_test xllr.jvm metaffi.idl.jvm metaffi.compiler.jvm java_guest_module)
 
 add_test(NAME jvm_host_third_party_test
 	COMMAND $ENV{METAFFI_HOME}/jvm_host_third_party_test${CMAKE_EXECUTABLE_SUFFIX}
