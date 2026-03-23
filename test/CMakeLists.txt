@@ -69,7 +69,6 @@ set(jvm_host_test_includes
 set(jvm_host_test_libs
 	doctest::doctest
 	Boost::filesystem
-	metaffi.api.cpp
 )
 
 c_cpp_exe(jvm_host_test
@@ -79,6 +78,13 @@ c_cpp_exe(jvm_host_test
 	"$ENV{METAFFI_HOME}"
 	INCLUDE_IN_ALL
 )
+
+# Header-only API: force-include metaffi.h so all TUs get inline implementations
+if(MSVC)
+	target_compile_options(jvm_host_test PRIVATE "/FImetaffi/metaffi.h")
+else()
+	target_compile_options(jvm_host_test PRIVATE -include metaffi/metaffi.h)
+endif()
 
 add_dependencies(jvm_host_test xllr.jvm metaffi.idl.jvm metaffi.compiler.jvm java_guest_module)
 
@@ -101,6 +107,13 @@ c_cpp_exe(jvm_host_third_party_test
 	INCLUDE_IN_ALL
 )
 
+# Header-only API: force-include metaffi.h so all TUs get inline implementations
+if(MSVC)
+	target_compile_options(jvm_host_third_party_test PRIVATE "/FImetaffi/metaffi.h")
+else()
+	target_compile_options(jvm_host_third_party_test PRIVATE -include metaffi/metaffi.h)
+endif()
+
 add_dependencies(jvm_host_third_party_test xllr.jvm metaffi.idl.jvm metaffi.compiler.jvm java_guest_module)
 
 add_test(NAME jvm_host_third_party_test
@@ -109,7 +122,7 @@ add_test(NAME jvm_host_third_party_test
 
 if(WIN32)
 	get_jvm_dll_search_paths(jvm_host_jvm_paths)
-	set(jvm_host_test_path "$ENV{METAFFI_HOME}/sdk/api/cpp;$ENV{METAFFI_HOME}/jvm")
+	set(jvm_host_test_path "$ENV{METAFFI_HOME}/jvm")
 	if(jvm_host_jvm_paths)
 		list(JOIN jvm_host_jvm_paths ";" jvm_host_jvm_paths_joined)
 		set(jvm_host_test_path "${jvm_host_test_path};${jvm_host_jvm_paths_joined}")
@@ -122,11 +135,11 @@ if(WIN32)
 	)
 elseif(APPLE)
 	set_tests_properties(jvm_host_test jvm_host_third_party_test PROPERTIES
-		ENVIRONMENT "DYLD_LIBRARY_PATH=$ENV{METAFFI_HOME}/sdk/api/cpp:$ENV{METAFFI_HOME}/jvm:$ENV{DYLD_LIBRARY_PATH};METAFFI_JVM_THIRD_PARTY_CLASSPATH=${JVM_THIRD_PARTY_CLASSPATH}"
+		ENVIRONMENT "DYLD_LIBRARY_PATH=$ENV{METAFFI_HOME}/jvm:$ENV{DYLD_LIBRARY_PATH};METAFFI_JVM_THIRD_PARTY_CLASSPATH=${JVM_THIRD_PARTY_CLASSPATH}"
 	)
 else()
 	set_tests_properties(jvm_host_test jvm_host_third_party_test PROPERTIES
-		ENVIRONMENT "LD_LIBRARY_PATH=$ENV{METAFFI_HOME}/sdk/api/cpp:$ENV{METAFFI_HOME}/jvm:$ENV{LD_LIBRARY_PATH};METAFFI_JVM_THIRD_PARTY_CLASSPATH=${JVM_THIRD_PARTY_CLASSPATH}"
+		ENVIRONMENT "LD_LIBRARY_PATH=$ENV{METAFFI_HOME}/jvm:$ENV{LD_LIBRARY_PATH};METAFFI_JVM_THIRD_PARTY_CLASSPATH=${JVM_THIRD_PARTY_CLASSPATH}"
 	)
 endif()
 
